@@ -430,18 +430,21 @@ fold_max_free_count(Name, Pool, {CName, CMax}) ->
 start_n_pids(N, PoolName, PoolSup, AllMembers) ->
     NewPids = lists:map(
                 fun(_I) ->
-                        {ok, Pid} = supervisor:start_child(PoolSup, []),
-                        % FIXME: race condition here if child
-                        % crashes early.
-                        erlang:link(Pid),
-                        Pid
+	            		case supervisor:start_child(PoolSup, []) of
+		            		{ok, Pid} ->
+			            		erlang:link(Pid),
+    		                    Pid;
+    		                 _ ->
+    		                 	error
+						end
                 end, lists:seq(1, N)),
-    AllMembers1 = lists:foldl(
+	NewPids1 = clean_list_from_error(NewPids, []),
+	AllMembers1 = lists:foldl(
                     fun(M, Dict) ->
                             Entry = {PoolName, free, os:timestamp()},
                             store_all_members(M, Entry, Dict)
-                    end, AllMembers, NewPids),
-    {AllMembers1, NewPids}.
+                    end, AllMembers, NewPids1),
+    {AllMembers1, NewPids1}.
 
 
 
@@ -499,3 +502,11 @@ expired_free_members(Members, Now, MaxAgeMin) ->
     [ MI || MI = {_, {_, free, LastReturn}} <- Members,
             timer:now_diff(Now, LastReturn) > (MaxAgeMin * Micros) ].
 
+clean_list_from_error([], L) ->
+	L;
+
+clean_list_from_error([error|T], L) ->
+	clean_list_from_error(T, L);
+
+clean_list_from_error([H|T], L) ->
+	clean_list_from_error(T, [H|L]).
